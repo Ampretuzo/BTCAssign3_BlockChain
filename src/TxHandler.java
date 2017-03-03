@@ -78,6 +78,13 @@ public class TxHandler {
 		this.utxoPool = new UTXOPool(utxoPool);
 	}
 
+	/**
+	 * @return pool of unspent tx outputs held by this {@code TxHandler}.
+	 */
+	public UTXOPool getUTXOPool() {
+		return utxoPool;
+	}
+
 	/*
 	 * generalize isValidTx(Transaxtion tx) by adding custom pool into
 	 * arguments list.
