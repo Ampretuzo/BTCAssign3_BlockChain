@@ -1,3 +1,7 @@
+import java.util.HashSet;
+
+import javax.net.ssl.HandshakeCompletedEvent;
+
 // Block Chain should maintain only limited block nodes to satisfy the functions
 // You should not have all the blocks added to the block chain in memory 
 // as it would cause a memory overflow.
@@ -23,6 +27,81 @@ public class BlockChain {
 	 * 
 	 * ...
 	 */
+	
+	/**
+	 * This class acts similar to Git's head but for blocks instead of commits.
+	 * {@code hashCode} and {@code equals} are provided by pointed blocks hashcode, which means
+	 * {@code heads} set can only contain one fork per block.
+	 * Sounds reasonable.
+	 * @author aro
+	 */
+	private class Head {
+		// The hash of block this head is pointing to.
+		private ByteArrayWrapper hash;
+		// Height of pointed block.
+		private int height;
+		/*
+		 *  Each fork has its own TxHandler, which will help validating block transactions as well as keep
+		 *  current UTXOPool.
+		 */
+		private TxHandler txHandler;
+		/**
+		 * To construct {@code Head} we have to know hash and height of pointed block as well
+		 * as UTXOPool at the point of forking.
+		 * Ctor keeps const-correctness for hash and up, so don't worry.
+		 */
+		public Head(int height, byte[] hash, UTXOPool up) {
+			this.height = height;
+			// TxHandler makes a copy of UTXOPool for itself.
+			this.txHandler = new TxHandler(up);
+			// copy is made inside {@code ByteArrayWrapper} ctor.
+			this.hash = new ByteArrayWrapper(hash);
+		}
+		/**
+		 * This is only needed accessor to fork height.
+		 */
+		public void incrementHeight() {
+			height++;
+		}
+		/**
+		 * Getter for head height.
+		 */
+		public int getHeight() {
+			return height;
+		}
+		/**
+		 * Simply give out UTXOPool for convenience. 
+		 */
+		public UTXOPool getUTXOPool() {
+			return txHandler.getUTXOPool();
+		}
+		/**
+		 * Getter for head block hash.
+		 * @return
+		 */
+		public ByteArrayWrapper getHash() {
+			return hash;
+		}
+		/**
+		 * Overriding equals.
+		 */
+		public boolean equals(Object other) {
+			return this.hash.equals(other);
+		}
+		/**
+		 * Overriding hashCode.
+		 */
+		public int hashCode() {
+			return this.hash.hashCode();
+		}
+	}
+	
+	
+	
+	
+	
+	
+	
 	
     public static final int CUT_OFF_AGE = 10;
 
