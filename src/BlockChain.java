@@ -241,6 +241,10 @@ public class BlockChain {
 
     /** Add a transaction to the transaction pool */
     public void addTransaction(Transaction tx) {
-        // IMPLEMENT THIS
+        /*
+         *  It is not our responsibility to check if tx is ok,
+         *  Just add it:
+         */
+    	txPool.addTransaction(tx);
     }
 }
