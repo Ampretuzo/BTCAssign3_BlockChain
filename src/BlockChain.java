@@ -3,6 +3,27 @@
 // as it would cause a memory overflow.
 
 public class BlockChain {
+	
+	/*
+	 * Here's the idea.
+	 * The structure is directed acyclic graph (DAG).
+	 * Directed part in DAG is obvious.
+	 * The fact that it is acyclic follows from append-only character of blockchain.
+	 * But not only is it a DAG, it is a tree as well, which follows from the fact that blocks have only one parent.
+	 * 
+	 * To store that tree I'll use Git like mechanism (although Git is just a DAG).
+	 * We'll store references to leafs in a set {@code heads}.
+	 * Ideally, {@code heads} will contain only one reference, but there is a possibility
+	 * of several references being stored when there are forks in blockchain.
+	 * For convenience, reference will contain hash and height of pointed block, as well as
+	 * UTXOPool for that fork.
+	 * 
+	 * Blocks will be stored in a map where keys are their hashes.
+	 * I'll keep blocks in memory only less than {@code CUT_OFF_AGE} deep from each head.
+	 * 
+	 * ...
+	 */
+	
     public static final int CUT_OFF_AGE = 10;
 
     /**
