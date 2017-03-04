@@ -1,4 +1,7 @@
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 import javax.net.ssl.HandshakeCompletedEvent;
 
@@ -7,6 +10,14 @@ import javax.net.ssl.HandshakeCompletedEvent;
 // as it would cause a memory overflow.
 
 public class BlockChain {
+	
+	// private vars
+	private Set<Head> heads;
+	private Map<ByteArrayWrapper, Block> blocks;
+	private TransactionPool txPool;
+	
+	// public vars
+    public static final int CUT_OFF_AGE = 10;
 	
 	/*
 	 * Here's the idea.
@@ -103,17 +114,37 @@ public class BlockChain {
 	
 	
 	
-    public static final int CUT_OFF_AGE = 10;
+
 
     /**
      * create an empty block chain with just a genesis block. Assume {@code genesisBlock} is a valid
      * block
      */
     public BlockChain(Block genesisBlock) {
-        // IMPLEMENT THIS
+    	// heads
+        this.heads = new HashSet<Head>();
+        Head master = new Head(1, genesisBlock.getHash(), genesisUTXOPool(genesisBlock) );
+        this.heads.add(master);
+        // blocks
+        this.blocks = new HashMap<ByteArrayWrapper, Block>();
+        this.blocks.put(new ByteArrayWrapper(genesisBlock.getHash() ), genesisBlock);
+        // tx pool
+        this.txPool = new TransactionPool();
     }
 
-    /** Get the maximum height block */
+    private UTXOPool genesisUTXOPool(Block genesisBlock) {
+    	/*
+    	 * Consensus says that conbase transaction can be spent only in the
+    	 * next block.
+    	 * Hence, genesis coinbase is not added to the pool right now and genesis pool will be
+    	 * empty.
+    	 * Genesis tx has to be pure coinbase without any usual txs.
+    	 * I won't check that as we're not writing industrial degree application.
+    	 */
+		return new UTXOPool();
+	}
+
+	/** Get the maximum height block */
     public Block getMaxHeightBlock() {
 		return null;
         // IMPLEMENT THIS
