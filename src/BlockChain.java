@@ -146,8 +146,33 @@ public class BlockChain {
 
 	/** Get the maximum height block */
     public Block getMaxHeightBlock() {
-		return null;
-        // IMPLEMENT THIS
+    	/*
+    	 * Keep in mind we can be sure that blocks mapping contains value for
+    	 * hashes in heads (it's not hard to guess why).
+    	 */
+    	ByteArrayWrapper hash = null;
+    	int maxHeight = 0;
+    	/*
+    	 * Since heads is supposed to be a small set I don't mind linear-searching
+    	 * on each request.
+    	 */
+    	for(Head head : heads) {
+    		int height = head.getHeight();
+    		// Definitely choose new one if higher
+    		if(height > maxHeight) {
+    			maxHeight = height;
+    			hash = head.getHash();
+    			continue;
+    		}
+    		// In case heights are the same, age is deciding factor
+    		if(height == maxHeight) {
+    			/*
+    			 *  TODO: we need a list which will store hashes in
+    			 *  order they were received.
+    			 */
+    		}
+    	}
+		return blocks.get(hash);
     }
 
     /** Get the UTXOPool for mining a new block on top of max height block */
