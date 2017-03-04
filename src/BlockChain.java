@@ -1,9 +1,7 @@
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
-
-import javax.net.ssl.HandshakeCompletedEvent;
 
 // Block Chain should maintain only limited block nodes to satisfy the functions
 // You should not have all the blocks added to the block chain in memory 
@@ -12,7 +10,7 @@ import javax.net.ssl.HandshakeCompletedEvent;
 public class BlockChain {
 	
 	// private vars
-	private Set<Head> heads;
+	private List<Head> heads;
 	private Map<ByteArrayWrapper, Block> blocks;
 	private TransactionPool txPool;
 	
@@ -27,11 +25,13 @@ public class BlockChain {
 	 * But not only is it a DAG, it is a tree as well, which follows from the fact that blocks have only one parent.
 	 * 
 	 * To store that tree I'll use Git like mechanism (although Git is just a DAG).
-	 * We'll store references to leafs in a set {@code heads}.
+	 * We'll store references to leafs in a list {@code heads}.
 	 * Ideally, {@code heads} will contain only one reference, but there is a possibility
 	 * of several references being stored when there are forks in blockchain.
-	 * For convenience, reference will contain hash and height of pointed block, as well as
-	 * UTXOPool for that fork.
+	 * {@code heads} list will always be sorted according to block height/age comparison, so
+	 * that it would be safe to pick 0th element whenever leading fork is needed.
+	 * Head will contain hash and height of pointed block, as well as
+	 * TxHandler (from which, UTXOPool) for that fork.
 	 * 
 	 * Blocks will be stored in a map where keys are their hashes.
 	 * I'll keep blocks in memory only less than {@code CUT_OFF_AGE} deep from each head.
@@ -122,8 +122,8 @@ public class BlockChain {
      */
     public BlockChain(Block genesisBlock) {
     	// heads
-        this.heads = new HashSet<Head>();
-        Head master = new Head(1, genesisBlock.getHash(), genesisUTXOPool(genesisBlock) );
+        this.heads = new ArrayList<Head>();	// Might choose LinkedList afterwards..
+        Head master = new Head(/* genesis height */ 1, genesisBlock.getHash(), genesisUTXOPool(genesisBlock) );
         this.heads.add(master);
         // blocks
         this.blocks = new HashMap<ByteArrayWrapper, Block>();
@@ -147,44 +147,21 @@ public class BlockChain {
 	/** Get the maximum height block */
     public Block getMaxHeightBlock() {
     	/*
-    	 * Keep in mind we can be sure that blocks mapping contains value for
-    	 * hashes in heads (it's not hard to guess why).
+    	 * Heads list will always be sorted so that highest
+    	 * head will be first element.
+    	 * Note that heads list will always have at least one element.
     	 */
-    	ByteArrayWrapper hash = null;
-    	int maxHeight = 0;
-    	/*
-    	 * Since heads is supposed to be a small set I don't mind linear-searching
-    	 * on each request.
-    	 */
-    	for(Head head : heads) {
-    		int height = head.getHeight();
-    		// Definitely choose new one if higher
-    		if(height > maxHeight) {
-    			maxHeight = height;
-    			hash = head.getHash();
-    			continue;
-    		}
-    		// In case heights are the same, age is deciding factor
-    		if(height == maxHeight) {
-    			/*
-    			 *  TODO: we need a list which will store hashes in
-    			 *  order they were received.
-    			 */
-    		}
-    	}
-		return blocks.get(hash);
+		return blocks.get(heads.get(0).getHash() );
     }
 
     /** Get the UTXOPool for mining a new block on top of max height block */
     public UTXOPool getMaxHeightUTXOPool() {
-		return null;
-        // IMPLEMENT THIS
+		return heads.get(0).getUTXOPool();
     }
-
+    
     /** Get the transaction pool to mine a new block */
     public TransactionPool getTransactionPool() {
-		return null;
-        // IMPLEMENT THIS
+		return txPool;
     }
 
     /**
