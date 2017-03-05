@@ -1,5 +1,6 @@
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +14,7 @@ public class BlockChain {
 	
 	// private vars
 	private TransactionPool txPool;
+	private Tree tree;
 	
 	// public vars
     public static final int CUT_OFF_AGE = 10;
@@ -68,16 +70,16 @@ public class BlockChain {
     	 */
     	private class BlockAndPool {
     	    private final Block block;
-    	    private final TxHandler txHandler;
-    	    public BlockAndPool(Block block, TxHandler txHandler) {
+    	    private final UTXOPool upSnapshot;
+    	    public BlockAndPool(Block block, UTXOPool txHandler) {
     	    	this.block = block;
-    	    	this.txHandler = txHandler;
+    	    	this.upSnapshot = txHandler;
 			}
     	    public Block getBlock() {
 				return block;
 			}
-    	    public TxHandler getTxHandler() {
-				return txHandler;
+    	    public UTXOPool getUTXOPool() {
+				return upSnapshot;
 			}
 			@Override
     	    public boolean equals(Object o) {
@@ -120,7 +122,7 @@ public class BlockChain {
     		 * as UTXOPool at the point of forking.
     		 * Ctor keeps const-correctness for hash and up, so don't worry.
     		 */
-    		public Head(int height, byte[] hash, UTXOPool up, int timeStamp) {
+    		public Head(int height, byte[] hash, int timeStamp) {
     			this.height = height;
     			// copy is made inside {@code ByteArrayWrapper} ctor.
     			this.hash = new ByteArrayWrapper(hash);
@@ -184,10 +186,34 @@ public class BlockChain {
     		}
     	}
 
-    	
     	public Tree(Block genesisBlock) {
-			// TODO Auto-generated constructor stub
+    		this.timeStamp = new TimeStamp();
+    		this.heads = new ArrayList<Head>();	// Is LinkedList better?
+    		this.heads.add(new Head(1, genesisBlock.getHash(), timeStamp.getStamp() ) );
+    		this.blocks = new HashMap<ByteArrayWrapper, BlockAndPool>();
+    		UTXOPool newUP = new UTXOPool();	// Genesis pool is empty
+    		BlockAndPool genesis = new BlockAndPool(genesisBlock, newUP );
+    		this.blocks.put(new ByteArrayWrapper(genesisBlock.getHash()), genesis);
 		}
+
+    	private BlockAndPool maxHeight() {
+    		// I don't mind linear search considering how small the number of forks is.
+    		ByteArrayWrapper hash = Collections.min(heads).getHash();
+			return blocks.get(hash);
+    	}
+    	
+		public Block maxHeightBlock() {
+			BlockAndPool bp = maxHeight();
+			return bp.getBlock();
+		}
+
+		public UTXOPool maxHeightUTXOPool() {
+			BlockAndPool bp = maxHeight();
+			return bp.getUTXOPool();
+		}
+    	
+    	// TODO
+    	
     }
 	
 
@@ -208,34 +234,23 @@ public class BlockChain {
      * block
      */
     public BlockChain(Block genesisBlock) {
-    	// TODO
+    	this.tree = new Tree(genesisBlock);
+    	this.txPool = new TransactionPool();	// Empty tx pool.
     }
     
-    private UTXOPool genesisUTXOPool(Block genesisBlock) {
-    	/*
-    	 * Consensus says that conbase transaction can be spent only in the
-    	 * next block.
-    	 * Hence, genesis coinbase is not added to the pool right now and genesis pool will be
-    	 * empty.
-    	 * Genesis tx has to be pure coinbase without any usual txs.
-    	 * I won't check that as we're not writing industrial degree application.
-    	 */
-		return new UTXOPool();
-	}
-
 	/** Get the maximum height block */
     public Block getMaxHeightBlock() {
-    	return null; // TODO
+    	return tree.maxHeightBlock();
     }
 
     /** Get the UTXOPool for mining a new block on top of max height block */
     public UTXOPool getMaxHeightUTXOPool() {
-		return null; // TODO
+		return tree.maxHeightUTXOPool();
     }
     
     /** Get the transaction pool to mine a new block */
     public TransactionPool getTransactionPool() {
-		return null; // TODO
+		return txPool;	// I think it's that simple
     }
 
     /**
@@ -257,6 +272,6 @@ public class BlockChain {
 
     /** Add a transaction to the transaction pool */
     public void addTransaction(Transaction tx) {
-        // TODO
+        txPool.addTransaction(tx);	// I think it's that simple.
     }
 }
