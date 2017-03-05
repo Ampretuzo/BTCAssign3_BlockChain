@@ -12,16 +12,26 @@ import java.util.Objects;
 public class BlockChain {
 	
 	// private vars
-	private List<Head> heads;
-	private Map<ByteArrayWrapper, Pair> blocks;
 	private TransactionPool txPool;
-	private int counter;	// Block counter
-	// Just inc block counter whenever new block arrives, successful or not.
-	// That way we can differentiate order of blocks.
 	
 	// public vars
     public static final int CUT_OFF_AGE = 10;
 	
+    /**
+     * Simple helper class to timestamp objects.
+     */
+    private class TimeStamp {
+    	private int counter;
+    	public TimeStamp() {
+    		counter = 0;
+    	}
+    	// Returns ever-increasing number on each call.
+    	public int getStamp() {
+			return counter++;
+    		
+    	}
+    }
+    
 	/*
 	 * Here's the idea.
 	 * The structure is directed acyclic graph (DAG).
@@ -33,132 +43,155 @@ public class BlockChain {
 	 * We'll store references to leafs in a list {@code heads}.
 	 * Ideally, {@code heads} will contain only one reference, but there is a possibility
 	 * of several references being stored when there are forks in blockchain.
-	 * {@code heads} list will always be sorted according to block height/age comparison, so
-	 * that it would be safe to pick 0th element whenever leading fork is needed.
 	 * Head will contain hash and height of pointed block, as well as
 	 * TxHandler (from which, UTXOPool) for that fork.
+	 * Additionally, {@code Head} will contain integer that timestamps them, higher value
+	 * meaning head was updated more recently.
 	 * 
 	 * Blocks will be stored in a map where keys are their hashes.
 	 * I'll keep blocks in memory only less than {@code CUT_OFF_AGE} deep from each head.
+	 * For convenience, blocks will be stored with corresponding TxHandlers so that
+	 * we don't have to manually construct UTXOPool each time new fork is made.
 	 *
-	 * To make age comparison work, I'll use Pair<Block, Integer> as values in
-	 * {@code blocks} map.
-	 * That enables us to include receiving order and later compare blocks by age.
 	 */
-	
-	/**
-	 * This class acts similar to Git's head but for blocks instead of commits.
-	 * {@code hashCode} and {@code equals} are provided by pointed blocks hashcode, which means
-	 * {@code heads} set can only contain one fork per block.
-	 * Sounds reasonable.
-	 * @author aro
-	 */
-	private class Head implements Comparable<Head>{
-		// The hash of block this head is pointing to.
-		private ByteArrayWrapper hash;
-		// Height of pointed block.
-		private int height;
-		/*
-		 *  Each fork has its own TxHandler, which will help validating block transactions as well as keep
-		 *  current UTXOPool.
-		 */
-		private TxHandler txHandler;
-		/**
-		 * To construct {@code Head} we have to know hash and height of pointed block as well
-		 * as UTXOPool at the point of forking.
-		 * Ctor keeps const-correctness for hash and up, so don't worry.
-		 */
-		public Head(int height, byte[] hash, UTXOPool up) {
-			this.height = height;
-			// TxHandler makes a copy of UTXOPool for itself.
-			this.txHandler = new TxHandler(up);
-			// copy is made inside {@code ByteArrayWrapper} ctor.
-			this.hash = new ByteArrayWrapper(hash);
-		}
-		/**
-		 * This is only needed accessor to fork height.
-		 */
-		public void incrementHeight() {
-			height++;
-		}
-		/**
-		 * Getter for head height.
-		 */
-		public int getHeight() {
-			return height;
-		}
-		/**
-		 * Simply give out UTXOPool for convenience. 
-		 */
-		public UTXOPool getUTXOPool() {
-			return txHandler.getUTXOPool();
-		}
-		/**
-		 * Getter for head block hash.
-		 * @return
-		 */
-		public ByteArrayWrapper getHash() {
-			return hash;
-		}
-		/**
-		 * Overriding equals.
-		 */
-		public boolean equals(Object other) {
-			return this.hash.equals(other);
-		}
-		/**
-		 * Overriding hashCode.
-		 */
-		public int hashCode() {
-			return this.hash.hashCode();
-		}
-		/**
-		 * As described, comparison is based on height or age
-		 * whenever necessary.
-		 */
-		@Override
-		public int compareTo(Head o) {
-			// Subtraction order is reversed since we want higher/older blocks to come first.
-			if(o.height != this.height) {
-				return o.height - this.height;
+    
+    /**
+     * Blockchain tree abstraction.
+     */
+    private class Tree {
+    	private List<Head> heads;
+    	private Map<ByteArrayWrapper, BlockAndPool> blocks;
+    	private TimeStamp timeStamp;
+    	
+    	/**
+    	 * A block and its TxHandler.
+    	 */
+    	private class BlockAndPool {
+    	    private final Block block;
+    	    private final TxHandler txHandler;
+    	    public BlockAndPool(Block block, TxHandler txHandler) {
+    	    	this.block = block;
+    	    	this.txHandler = txHandler;
 			}
-			return blocks.get(o.getHash() ).getNum() - blocks.get(this.getHash() ).getNum(); 
-		}
-	}
+    	    public Block getBlock() {
+				return block;
+			}
+    	    public TxHandler getTxHandler() {
+				return txHandler;
+			}
+			@Override
+    	    public boolean equals(Object o) {
+    	    	if(o == null) return false;
+    	        if (!(o instanceof BlockAndPool)) {
+    	            return false;
+    	        }
+    	        BlockAndPool p = (BlockAndPool) o;
+    	        // Comparing digest is enough:
+    	        return Arrays.equals(this.getBlock().getHash(), p.getBlock().getHash() );
+    	    }
+    	    @Override
+    	    public int hashCode() {
+    	        return this.getBlock().hashCode();
+    	    }
+    	}
+    	
+    	/**
+    	 * This class acts similar to Git's head but for blocks instead of commits.
+    	 * {@code hashCode} and {@code equals} are provided by pointed blocks hashcode, which means
+    	 * {@code heads} set can only contain one fork per block.
+    	 * Sounds reasonable.
+    	 * @author aro
+    	 */
+    	private class Head implements Comparable<Head>{
+    		// The hash of block this head is pointing to.
+    		private ByteArrayWrapper hash;
+    		// Height of pointed block.
+    		private int height;
+    		/*
+    		 *  Higher value means newer.
+    		 *  Actually, timestamp would be a nice application of
+    		 *  static variables, but unfortunately to upload this assignment I
+    		 *  need to keep things in a single file and use inner classes,
+    		 *  which don't allow static variables.
+    		 */
+    		private int timeStamp;
+    		/**
+    		 * To construct {@code Head} we have to know hash and height of pointed block as well
+    		 * as UTXOPool at the point of forking.
+    		 * Ctor keeps const-correctness for hash and up, so don't worry.
+    		 */
+    		public Head(int height, byte[] hash, UTXOPool up, int timeStamp) {
+    			this.height = height;
+    			// copy is made inside {@code ByteArrayWrapper} ctor.
+    			this.hash = new ByteArrayWrapper(hash);
+    			this.timeStamp = timeStamp;
+    		}
+    		/**
+    		 * @return int timestamp of this head.
+    		 */
+    		public int getTimeStamp() {
+				return timeStamp;
+			}
+    		/**
+    		 * Update timestamp value. 
+    		 */
+			public void setTimeStamp(int timeStamp) {
+				this.timeStamp = timeStamp;
+			}
+			/**
+    		 * This is only needed accessor to fork height.
+    		 */
+    		public void incrementHeight() {
+    			height++;
+    		}
+    		/**
+    		 * Getter for head height.
+    		 */
+    		public int getHeight() {
+    			return height;
+    		}
+    		/**
+    		 * Getter for head block hash.
+    		 * @return
+    		 */
+    		public ByteArrayWrapper getHash() {
+    			return hash;
+    		}
+    		/**
+    		 * Overriding equals.
+    		 * Heads are equal if hashes are equal.
+    		 */
+    		public boolean equals(Object other) {
+    			return this.hash.equals(other);
+    		}
+    		/**
+    		 * Overriding hashCode.
+    		 */
+    		public int hashCode() {
+    			return this.hash.hashCode();
+    		}
+    		/**
+    		 * As described, comparison is based on height or age
+    		 * whenever necessary.
+    		 */
+    		@Override
+    		public int compareTo(Head o) {
+    			// Subtraction order is reversed since we want higher/older blocks to come first.
+    			if(o.height != this.height) {
+    				return o.height - this.height;
+    			}
+    			return o.getTimeStamp() - this.getTimeStamp();
+    		}
+    	}
 
-	/**
-	 * Helper class to enable storing a pair as blocks map values.
-	 * Comparison and hashing rely only on block object.
-	 * Lifted from StackOverflow.
-	 */
-	private class Pair {
-	    private final Block block;
-	    private final int num;
-	    public Pair(Block block, int num) {
-	    	this.block = block;
-	    	this.num = num;
-	    }
-	    public Block getBlock() {
-	    	return block;
-	    }
-	    public int getNum() {
-	    	return num;
-	    }
-	    @Override
-	    public boolean equals(Object o) {
-	    	if(o == null) return false;
-	        if (!(o instanceof Pair)) {
-	            return false;
-	        }
-	        Pair p = (Pair) o;
-	        // Comparing digest is enough:
-	        return Arrays.equals(this.getBlock().getHash(), p.getBlock().getHash() );
-	    }
-	    @Override
-	    public int hashCode() {
-	        return this.getBlock().hashCode();
-	    }
-	}
+    	
+    	public Tree(Block genesisBlock) {
+			// TODO Auto-generated constructor stub
+		}
+    }
+	
+
+
 	
 	
 	
@@ -175,17 +208,7 @@ public class BlockChain {
      * block
      */
     public BlockChain(Block genesisBlock) {
-    	// heads
-        this.heads = new ArrayList<Head>();	// Might choose LinkedList afterwards..
-        Head master = new Head(/* genesis height */ 1, genesisBlock.getHash(), genesisUTXOPool(genesisBlock) );
-        this.heads.add(master);
-        // blocks
-        this.blocks = new HashMap<ByteArrayWrapper, Pair>();
-        this.blocks.put(new ByteArrayWrapper(genesisBlock.getHash() ), new Pair(genesisBlock, 0) );
-        // tx pool
-        this.txPool = new TransactionPool();
-        // counter
-        this.counter = 1;	// zero was genesis block
+    	// TODO
     }
     
     private UTXOPool genesisUTXOPool(Block genesisBlock) {
@@ -202,24 +225,17 @@ public class BlockChain {
 
 	/** Get the maximum height block */
     public Block getMaxHeightBlock() {
-    	/*
-    	 * Heads list will always be sorted so that highest
-    	 * head will be first element.
-    	 * Note that heads list will always have at least one element.
-    	 */
-    	ByteArrayWrapper hash = heads.get(0).getHash();
-    	Pair p = blocks.get(hash);
-		return p.getBlock();
+    	return null; // TODO
     }
 
     /** Get the UTXOPool for mining a new block on top of max height block */
     public UTXOPool getMaxHeightUTXOPool() {
-		return heads.get(0).getUTXOPool();
+		return null; // TODO
     }
     
     /** Get the transaction pool to mine a new block */
     public TransactionPool getTransactionPool() {
-		return txPool;
+		return null; // TODO
     }
 
     /**
@@ -241,10 +257,6 @@ public class BlockChain {
 
     /** Add a transaction to the transaction pool */
     public void addTransaction(Transaction tx) {
-        /*
-         *  It is not our responsibility to check if tx is ok,
-         *  Just add it:
-         */
-    	txPool.addTransaction(tx);
+        // TODO
     }
 }
