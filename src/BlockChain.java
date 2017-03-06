@@ -199,7 +199,8 @@ public class BlockChain {
     		this.heads = new ArrayList<Head>();	// Is LinkedList better?
     		this.heads.add(new Head(1, genesisBlock.getHash(), timeStamp.getStamp() ) );
     		this.blocks = new HashMap<ByteArrayWrapper, BlockAndPool>();
-    		UTXOPool newUP = new UTXOPool();	// Genesis pool is empty
+    		UTXOPool newUP = new UTXOPool();	// Genesis pool is *not* empty
+    		newUP.addUTXO(new UTXO(genesisBlock.getCoinbase().getHash(), 0), genesisBlock.getCoinbase().getOutput(0) );
     		BlockAndPool genesis = new BlockAndPool(genesisBlock, newUP, 1);
     		this.blocks.put(new ByteArrayWrapper(genesisBlock.getHash()), genesis);
 		}
@@ -226,24 +227,38 @@ public class BlockChain {
 		 * already taken care of by BlockHandler, I won't check it twice).
 		 */
 		public boolean addBlockInTree(Block block) {
-			ByteArrayWrapper prevHash = new ByteArrayWrapper(block.getPrevBlockHash() );
+			
+			// New genesis, not again..
+	    	if(block.getPrevBlockHash() == null) {
+	    		return false;
+	    	}
+	    	
 			/*
-			 *  Make sure tree contains a parent.
-			 *  This is equivalent to checking height condition, because I'm removing
+			 *  Make sure tree contains a parent, which is necessary condition.
+			 *  This is also equivalent to checking height condition, because I'm removing
 			 *  old parents from tree on each addBlock. 
 			 */
+	    	ByteArrayWrapper prevHash = new ByteArrayWrapper(block.getPrevBlockHash() );
 			if(!blocks.keySet().contains(prevHash) ) return false;
 			int newHeight = blocks.get(prevHash).getHeight() + 1;
 			
-			// Removing used UTXOs from parents UTXOPool.
-			UTXOPool up = new UTXOPool(blocks.get(prevHash).getUTXOPool() );
-			for(int index = 0; index < block.getTransactions().size(); index++) {
-				UTXO used = new UTXO(block.getTransaction(index).getHash(), index);
-				up.removeUTXO(used);
-			}
+			/*
+			 *  Now make sure block is valid by looking at its transactions.
+			 */
+			TxHandler txHandler = new TxHandler(blocks.get(prevHash).getUTXOPool() );
+			List<Transaction> txs = block.getTransactions();
+			Transaction[] left = txs.toArray(new Transaction[txs.size() ] );
+			// If any transaction is missing, block is bad:
+			if(left.length != block.getTransactions().size() ) return false;
+			
+			// This will be used as a new utxo pool.
+			UTXOPool up = txHandler.getUTXOPool();
+			// Add coinbase to it:
+			Transaction coinbase = blocks.get(prevHash).getBlock().getCoinbase();
+			up.addUTXO(new UTXO(coinbase.getHash(), 0), coinbase.getOutput(0) );
+			// Put new block in map:
 			BlockAndPool bp = new BlockAndPool(block, up, newHeight);
-			ByteArrayWrapper hash = new ByteArrayWrapper(block.getHash() );
-			blocks.put(hash, bp);
+			blocks.put(new ByteArrayWrapper(block.getHash() ), bp);
 			
 			// Now take care of the heads.
 			/*
@@ -259,6 +274,7 @@ public class BlockChain {
 			/*
 			 * Do some changes to heads.
 			 */
+			ByteArrayWrapper hash = new ByteArrayWrapper(block.getHash() );
 			if(headIdx != -1) {	// Edit existing head.
 				heads.get(headIdx).setHash(hash);
 				heads.get(headIdx).incrementHeight();
@@ -337,10 +353,6 @@ public class BlockChain {
      * @return true if block is successfully added
      */
     public boolean addBlock(Block block) {
-    	// New genesis, not again..
-    	if(block.getPrevBlockHash() == null) {
-    		return false;
-    	}
     	
     	// If tree is unable to accept that block, return no.
     	if(!tree.addBlockInTree(block) ) return false;
