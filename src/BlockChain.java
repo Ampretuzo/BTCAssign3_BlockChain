@@ -1,5 +1,4 @@
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -30,7 +29,6 @@ public class BlockChain {
     	// Returns ever-increasing number on each call.
     	public int getStamp() {
 			return counter++;
-    		
     	}
     }
     
@@ -39,22 +37,21 @@ public class BlockChain {
 	 * The structure is directed acyclic graph (DAG).
 	 * Directed part in DAG is obvious.
 	 * The fact that it is acyclic follows from append-only character of blockchain.
-	 * But not only is it a DAG, it is a tree as well, which follows from the fact that blocks have only one parent.
+	 * But not only is it a DAG, it is a tree as well, which follows from the fact that 
+	 * blocks have only one parent.
 	 * 
 	 * To store that tree I'll use Git like mechanism (although Git is just a DAG).
 	 * We'll store references to leafs in a list {@code heads}.
 	 * Ideally, {@code heads} will contain only one reference, but there is a possibility
 	 * of several references being stored when there are forks in blockchain.
-	 * Head will contain hash and height of pointed block, as well as
-	 * TxHandler (from which, UTXOPool) for that fork.
-	 * Additionally, {@code Head} will contain integer that timestamps them, higher value
-	 * meaning head was updated more recently.
+	 * Head will contain hash, height and timestamp of pointed node.
 	 * 
 	 * Blocks will be stored in a map where keys are their hashes.
 	 * I'll keep blocks in memory only less than {@code CUT_OFF_AGE} deep from each head.
-	 * For convenience, blocks will be stored with corresponding TxHandlers so that
+	 * For convenience, blocks will be stored with corresponding UTXOPools so that
 	 * we don't have to manually construct UTXOPool each time new fork is made.
 	 *
+	 * ...
 	 */
     
     /**
@@ -62,17 +59,18 @@ public class BlockChain {
      */
     private class Tree {
     	private List<Head> heads;
-    	private Map<ByteArrayWrapper, BlockAndPool> blocks;
+    	private Map<ByteArrayWrapper, NodeData> nodes;
     	private TimeStamp timeStamp;
     	
     	/**
-    	 * A block and its TxHandler.
+    	 * A block, UTXOPool after the addition of that block
+    	 * and its height.
     	 */
-    	private class BlockAndPool {
+    	private class NodeData {
     	    private final Block block;
     	    private final UTXOPool upSnapshot;
     	    private final int height;
-    	    public BlockAndPool(Block block, UTXOPool upSnapshot, int height) {
+    	    public NodeData(Block block, UTXOPool upSnapshot, int height) {
     	    	this.height = height;
     	    	this.block = block;
     	    	this.upSnapshot = upSnapshot;
@@ -86,97 +84,57 @@ public class BlockChain {
     	    public int getHeight() {
     	    	return height;
     	    }
-			@Override
-    	    public boolean equals(Object o) {
-    	    	if(o == null) return false;
-    	        if (!(o instanceof BlockAndPool)) {
-    	            return false;
-    	        }
-    	        BlockAndPool p = (BlockAndPool) o;
-    	        // Comparing digest is enough:
-    	        return Arrays.equals(this.getBlock().getHash(), p.getBlock().getHash() );
-    	    }
-    	    @Override
-    	    public int hashCode() {
-    	        return this.getBlock().hashCode();
-    	    }
+    	    // Enough for this.
     	}
     	
     	/**
-    	 * This class acts similar to Git's head but for blocks instead of commits.
-    	 * {@code hashCode} and {@code equals} are provided by pointed blocks hashcode, which means
-    	 * {@code heads} set can only contain one fork per block.
-    	 * Sounds reasonable.
-    	 * @author aro
+    	 * Think of Git's heads.
     	 */
     	private class Head implements Comparable<Head>{
-    		// The hash of block this head is pointing to.
     		private ByteArrayWrapper hash;
-    		// Height of pointed block.
     		private int height;
-    		/*
-    		 *  Higher value means newer.
-    		 *  Actually, timestamp would be a nice application of
-    		 *  static variables, but unfortunately to upload this assignment I
-    		 *  need to keep things in a single file and use inner classes,
-    		 *  which don't allow static variables.
-    		 */
-    		private int timeStamp;
+    		private int timeStamp;	// Higher value means newer.
     		/**
     		 * To construct {@code Head} we have to know hash and height of pointed block as well
     		 * as UTXOPool at the point of forking.
     		 * Ctor keeps const-correctness for hash and up, so don't worry.
     		 */
     		public Head(int height, byte[] hash, int timeStamp) {
-    			this.height = height;
     			// copy is made inside {@code ByteArrayWrapper} ctor.
-    			this.hash = new ByteArrayWrapper(hash);
+    			this(height, new ByteArrayWrapper(hash), timeStamp);
+    		}
+    		public Head(int height, ByteArrayWrapper hash, int timeStamp) {
+    			this.height = height;
+    			this.hash = hash;
     			this.timeStamp = timeStamp;
     		}
-    		/**
-    		 * @return int timestamp of this head.
-    		 */
     		public int getTimeStamp() {
 				return timeStamp;
 			}
-    		/**
-    		 * Update timestamp value. 
-    		 */
-			public void setTimeStamp(int timeStamp) {
-				this.timeStamp = timeStamp;
+    		private int getHeight() {
+				return height;
 			}
-			/**
-    		 * This is only needed accessor to fork height.
-    		 */
-    		public void incrementHeight() {
-    			height++;
-    		}
-    		/**
-    		 * Getter for head height.
-    		 */
-    		public int getHeight() {
-    			return height;
-    		}
-    		/**
-    		 * Getter for head block hash.
-    		 * @return
-    		 */
     		public ByteArrayWrapper getHash() {
     			return hash;
     		}
+			public void setTimeStamp(int timeStamp) {
+				this.timeStamp = timeStamp;
+			}
     		public void setHash(ByteArrayWrapper hash) {
     			this.hash = hash;
     		}
     		/**
-    		 * Overriding equals.
     		 * Heads are equal if hashes are equal.
     		 */
-    		public boolean equals(Object other) {
-    			return this.hash.equals(other);
+    		@Override
+    		public boolean equals(Object obj) {
+    			if (this == obj) return true;
+    		    if (obj == null) return false;
+    		    if (this.getClass() != obj.getClass() ) return false;
+    		    Head other = (Head) obj;
+    		    return this.getHash().equals(other.getHash() );
     		}
-    		/**
-    		 * Overriding hashCode.
-    		 */
+    		@Override
     		public int hashCode() {
     			return this.hash.hashCode();
     		}
@@ -187,118 +145,205 @@ public class BlockChain {
     		@Override
     		public int compareTo(Head o) {
     			// Subtraction order is reversed since we want higher/older blocks to come first.
-    			if(o.height != this.height) {
-    				return o.height - this.height;
+    			if(o.getHeight() != this.getHeight() ) {
+    				return o.getHeight() - this.getHeight();
     			}
     			return o.getTimeStamp() - this.getTimeStamp();
     		}
+			public void setHeight(int height) {
+				this.height = height;				
+			}
     	}
-
+    	/**
+    	 * Ctor
+    	 */
     	public Tree(Block genesisBlock) {
     		this.timeStamp = new TimeStamp();
-    		this.heads = new ArrayList<Head>();	// Is LinkedList better?
-    		this.heads.add(new Head(1, genesisBlock.getHash(), timeStamp.getStamp() ) );
-    		this.blocks = new HashMap<ByteArrayWrapper, BlockAndPool>();
-    		UTXOPool newUP = new UTXOPool();	// Genesis pool is *not* empty
-    		newUP.addUTXO(new UTXO(genesisBlock.getCoinbase().getHash(), 0), genesisBlock.getCoinbase().getOutput(0) );
-    		BlockAndPool genesis = new BlockAndPool(genesisBlock, newUP, 1);
-    		this.blocks.put(new ByteArrayWrapper(genesisBlock.getHash()), genesis);
+    		initHeads(genesisBlock);
+    		initNodes(genesisBlock);
 		}
 
-    	private BlockAndPool maxHeight() {
+    	private void initNodes(Block genesisBlock) {
+    		this.nodes = new HashMap<ByteArrayWrapper, NodeData> ();
+    		UTXOPool up = new UTXOPool();	// Genesis pool is *not* empty
+    		up.addUTXO(coinbaseUTXO(genesisBlock), coinbaseOutput(genesisBlock) );
+    		NodeData genesis = new NodeData(genesisBlock, up, 1);
+    		this.nodes.put(blockHash(genesisBlock), genesis);
+		}
+
+		private ByteArrayWrapper blockHash(Block block) {
+			return new ByteArrayWrapper(block.getHash() );
+		}
+
+		private Transaction.Output coinbaseOutput(Block block) {
+			return block.getCoinbase().getOutput(0);
+		}
+
+		private UTXO coinbaseUTXO(Block block) {
+			return new UTXO(block.getCoinbase().getHash(), 0);
+		}
+
+		private void initHeads(Block genesisBlock) {
+    		this.heads = new ArrayList<Head> ();	// Is LinkedList better?
+    		this.heads.add( new Head(1, genesisBlock.getHash(), timeStamp.getStamp() ) );
+		}
+
+		private NodeData maxHeight() {
     		// I don't mind linear search considering how small the number of forks is.
     		ByteArrayWrapper hash = Collections.min(heads).getHash();
-			return blocks.get(hash);
+			return nodes.get(hash);
     	}
     	
 		public Block maxHeightBlock() {
-			BlockAndPool bp = maxHeight();
+			NodeData bp = maxHeight();
 			return bp.getBlock();
 		}
 
 		public UTXOPool maxHeightUTXOPool() {
-			BlockAndPool bp = maxHeight();
+			NodeData bp = maxHeight();
 			return bp.getUTXOPool();
 		}
 
 		/**
-		 * (i) passed block must not be too old
-		 * (ii) passed block must have valid tx set (This is actually 
-		 * already taken care of by BlockHandler, I won't check it twice).
+		 * ...
 		 */
 		public boolean addBlockInTree(Block block) {
-			
-			// New genesis, not again..
-	    	if(block.getPrevBlockHash() == null) {
-	    		return false;
-	    	}
-	    	
 			/*
-			 *  Make sure tree contains a parent, which is necessary condition.
-			 *  This is also equivalent to checking height condition, because I'm removing
-			 *  old parents from tree on each addBlock. 
+			 * Checks come first:
 			 */
-	    	ByteArrayWrapper prevHash = new ByteArrayWrapper(block.getPrevBlockHash() );
-			if(!blocks.keySet().contains(prevHash) ) return false;
-			int newHeight = blocks.get(prevHash).getHeight() + 1;
+			if(isGenesis(block) ) return false;
+			
+			if(tooOld(block) ) return false;
+			
+			if(wrongParent(block) ) return false;
+			
+			if(notValid(block) ) return false;
 			
 			/*
-			 *  Now make sure block is valid by looking at its transactions.
+			 * If we arrived this far, we can start
+			 * applying some changes to structures.
 			 */
-			TxHandler txHandler = new TxHandler(blocks.get(prevHash).getUTXOPool() );
-			List<Transaction> txs = block.getTransactions();
-			Transaction[] left = txs.toArray(new Transaction[txs.size() ] );
-			// If any transaction is missing, block is bad:
-			if(left.length != block.getTransactions().size() ) return false;
+			NodeData newNode = createNewNode(block);
+			nodes.put(blockHash(block), newNode);
 			
-			// This will be used as a new utxo pool.
-			UTXOPool up = txHandler.getUTXOPool();
-			// Add coinbase to it:
-			Transaction coinbase = blocks.get(prevHash).getBlock().getCoinbase();
-			up.addUTXO(new UTXO(coinbase.getHash(), 0), coinbase.getOutput(0) );
-			// Put new block in map:
-			BlockAndPool bp = new BlockAndPool(block, up, newHeight);
-			blocks.put(new ByteArrayWrapper(block.getHash() ), bp);
+			updateHeads(blockHash(block) );
 			
-			// Now take care of the heads.
-			/*
-			 * First, see if heads contained prevHash block.
-			 */
-			int headIdx = -1;
-			for(int i = 0; i < heads.size(); i++) {
-				if(heads.get(i).getHash().equals(prevHash) ) {
-					headIdx = i;
-					break;
-				}
-			}
-			/*
-			 * Do some changes to heads.
-			 */
-			ByteArrayWrapper hash = new ByteArrayWrapper(block.getHash() );
-			if(headIdx != -1) {	// Edit existing head.
-				heads.get(headIdx).setHash(hash);
-				heads.get(headIdx).incrementHeight();
-				heads.get(headIdx).setTimeStamp(timeStamp.getStamp() );
-			} else {	// Add new Head.
-				Head newHead = new Head(newHeight, block.getHash(), timeStamp.getStamp() );
-				heads.add(newHead);
-			}
+			reduceNodes();
 			
-			/*
-			 * We have to drop old blocks.
-			 */
-			List<ByteArrayWrapper> dropList = new LinkedList<ByteArrayWrapper>();
-			for(ByteArrayWrapper gash : blocks.keySet() ) {
-				// Age condition:
-				if(blocks.get(gash).getHeight() + 1 <= maxHeight().getHeight() - CUT_OFF_AGE) {
-					dropList.add(gash);
-				}
-			}
-			for(ByteArrayWrapper gash : dropList) {
-				blocks.remove(gash);
-			}
+			reduceHeads();	// Not necessary
 			
 			return true;
+		}
+
+		private void reduceHeads() {
+			// TODO Auto-generated method stub
+			
+		}
+
+		/*
+		 * Remove old nodes.
+		 * Note that this is not optimisation, but necessary for
+		 * the program to function as described.
+		 */
+		private void reduceNodes() {
+			List<ByteArrayWrapper> dropList = new LinkedList<ByteArrayWrapper> ();
+			for(ByteArrayWrapper hash : nodes.keySet() ) {
+				if(nodeTooOld(hash) )
+					dropList.add(hash);
+			}
+			for(ByteArrayWrapper hash : dropList ) {
+				nodes.remove(hash);
+			}
+		}
+
+		private boolean nodeTooOld(ByteArrayWrapper hash) {
+			int height = nodes.get(hash).getHeight();
+			int maxHeight = maxHeight().getHeight();
+			return !(height + 1 > (maxHeight - CUT_OFF_AGE));
+		}
+
+		private void updateHeads(ByteArrayWrapper hash) {
+			ByteArrayWrapper prevHash = new ByteArrayWrapper(
+					nodes.get(hash).getBlock().getPrevBlockHash() 
+					);
+			int headIdx = indexInHeads(prevHash);
+			if(headIdx == -1) {	// Add
+				Head head = new Head(
+						nodes.get(hash).getHeight(), 
+						hash, 
+						timeStamp.getStamp() 
+						);
+				heads.add(head);
+			} else {	// Update
+				heads.get(headIdx).setHash(hash);
+				heads.get(headIdx).setTimeStamp(timeStamp.getStamp() );
+				heads.get(headIdx).setHeight(nodes.get(hash).getHeight() );
+			}
+			
+		}
+
+		private int indexInHeads(ByteArrayWrapper hash) {
+			for(int idx = 0; idx < heads.size(); idx++) {
+				Head temp = new Head(11, hash, 111);
+				if(temp.equals(heads.get(idx) ) )	// heads.get(idx).getHash().equals(hash) might have been better..
+					return idx;
+			}
+			return -1;
+		}
+
+		private NodeData createNewNode(Block block) {
+			UTXOPool newUp = reducedUtxo(block);
+			addCoinbase(newUp, block);
+			ByteArrayWrapper parentHash = new ByteArrayWrapper(block.getPrevBlockHash() );
+			int height = nodes.get(parentHash).getHeight() + 1;
+			NodeData newNode = new NodeData(block, newUp, height);
+			return newNode;
+		}
+
+		private void addCoinbase(UTXOPool newUp, Block block) {
+			newUp.addUTXO(coinbaseUTXO(block), coinbaseOutput(block) );
+		}
+
+		private UTXOPool reducedUtxo(Block block) {
+			ByteArrayWrapper parentHash = new ByteArrayWrapper(block.getPrevBlockHash() );
+			NodeData parentData = nodes.get(parentHash);
+			TxHandler txHandler = new TxHandler(parentData.getUTXOPool() );
+			List<Transaction> txList = block.getTransactions();
+			Transaction[] txs = txList.toArray(new Transaction[txList.size() ] );
+			txHandler.handleTxs(txs);
+			return txHandler.getUTXOPool();	// Return updated utxoPool
+		}
+
+		private boolean isGenesis(Block block) {
+			return block.getPrevBlockHash() == null;
+		}
+
+		private boolean notValid(Block block) {
+			// Assume not null:
+			ByteArrayWrapper parentHash = new ByteArrayWrapper(block.getPrevBlockHash() );
+			// Assume exists:
+			NodeData parentData = nodes.get(parentHash);
+			UTXOPool up = parentData.getUTXOPool();
+			TxHandler txHandler = new TxHandler(up);
+			List<Transaction> txList = block.getTransactions();
+			Transaction[] txs = txList.toArray(new Transaction[txList.size() ] );
+			Transaction[] handled = txHandler.handleTxs(txs);
+			/*
+			 * Now this is a weak link.
+			 * It won't let bad blocks pass, but it might stop good
+			 * blocks from being published.
+			 * TODO
+			 */
+			if(txList.size() != handled.length) return true;
+			return false;
+		}
+
+		private boolean wrongParent(Block block) {
+			return !nodes.containsKey(new ByteArrayWrapper(block.getPrevBlockHash() ) );
+		}
+
+		private boolean tooOld(Block block) {
+			return wrongParent(block);
 		}
     	
     }
@@ -374,7 +419,14 @@ public class BlockChain {
      */
     private void reorganizeOutstandingPool() {
 		// TODO Auto-generated method stub
-		
+		/*
+		 * Is this even needed?
+		 * I just have to store txs, it is not my responsibility that they make
+		 * sense.
+		 * Even more, it is not possible to truly reset outstanding tx pool
+		 * in this setting, since two branches might not necessarily have a common
+		 * ancestor.
+		 */
 	}
 
 	/** Add a transaction to the transaction pool */
