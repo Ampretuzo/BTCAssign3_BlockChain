@@ -206,83 +206,54 @@ public class BlockChain {
 		}
 
 		/**
-		 * (i) passed block must not be too old
-		 * (ii) passed block must have valid tx set (This is actually 
-		 * already taken care of by BlockHandler, I won't check it twice).
+		 * ...
 		 */
 		public boolean addBlockInTree(Block block) {
-			
-			// New genesis, not again..
-	    	if(block.getPrevBlockHash() == null) {
-	    		return false;
-	    	}
-	    	
 			/*
-			 *  Make sure tree contains a parent, which is necessary condition.
-			 *  This is also equivalent to checking height condition, because I'm removing
-			 *  old parents from tree on each addBlock. 
+			 * Checks come first:
 			 */
-	    	ByteArrayWrapper prevHash = new ByteArrayWrapper(block.getPrevBlockHash() );
-			if(!nodes.keySet().contains(prevHash) ) return false;
-			int newHeight = nodes.get(prevHash).getHeight() + 1;
 			
+			if(isGenesis(block) ) return false;
+			
+			if(tooOld(block) ) return false;
+			
+			if(wrongParent(block) ) return false;
+			
+			if(notValid(block) ) return false;
+			
+			return false;
+		}
+
+		private boolean isGenesis(Block block) {
+			return block.getHash() == null;
+		}
+
+		private boolean notValid(Block block) {
+			// Assume not null:
+			ByteArrayWrapper parentHash = new ByteArrayWrapper(block.getPrevBlockHash() );
+			// Assume exists:
+			NodeData parentData = nodes.get(parentHash);
+			UTXOPool up = parentData.getUTXOPool();
+			TxHandler txHandler = new TxHandler(up);
+			List<Transaction> txList = block.getTransactions();
+			Transaction[] txs = txList.toArray(new Transaction[txList.size() ] );
+			Transaction[] handled = txHandler.handleTxs(txs);
 			/*
-			 *  Now make sure block is valid by looking at its transactions.
+			 * Now this is a weak link.
+			 * It won't let bad blocks pass, but it might stop good
+			 * blocks from being published.
+			 * TODO
 			 */
-			TxHandler txHandler = new TxHandler(nodes.get(prevHash).getUTXOPool() );
-			List<Transaction> txs = block.getTransactions();
-			Transaction[] left = txs.toArray(new Transaction[txs.size() ] );
-			// If any transaction is missing, block is bad:
-			if(left.length != block.getTransactions().size() ) return false;
-			
-			// This will be used as a new utxo pool.
-			UTXOPool up = txHandler.getUTXOPool();
-			// Add coinbase to it:
-			Transaction coinbase = nodes.get(prevHash).getBlock().getCoinbase();
-			up.addUTXO(new UTXO(coinbase.getHash(), 0), coinbase.getOutput(0) );
-			// Put new block in map:
-			NodeData bp = new NodeData(block, up, newHeight);
-			nodes.put(new ByteArrayWrapper(block.getHash() ), bp);
-			
-			// Now take care of the heads.
-			/*
-			 * First, see if heads contained prevHash block.
-			 */
-			int headIdx = -1;
-			for(int i = 0; i < heads.size(); i++) {
-				if(heads.get(i).getHash().equals(prevHash) ) {
-					headIdx = i;
-					break;
-				}
-			}
-			/*
-			 * Do some changes to heads.
-			 */
-			ByteArrayWrapper hash = new ByteArrayWrapper(block.getHash() );
-			if(headIdx != -1) {	// Edit existing head.
-				heads.get(headIdx).setHash(hash);
-				heads.get(headIdx).incrementHeight();
-				heads.get(headIdx).setTimeStamp(timeStamp.getStamp() );
-			} else {	// Add new Head.
-				Head newHead = new Head(newHeight, block.getHash(), timeStamp.getStamp() );
-				heads.add(newHead);
-			}
-			
-			/*
-			 * We have to drop old blocks.
-			 */
-			List<ByteArrayWrapper> dropList = new LinkedList<ByteArrayWrapper>();
-			for(ByteArrayWrapper gash : nodes.keySet() ) {
-				// Age condition:
-				if(nodes.get(gash).getHeight() + 1 <= maxHeight().getHeight() - CUT_OFF_AGE) {
-					dropList.add(gash);
-				}
-			}
-			for(ByteArrayWrapper gash : dropList) {
-				nodes.remove(gash);
-			}
-			
-			return true;
+			if(txList.size() != handled.length) return true;
+			return false;
+		}
+
+		private boolean wrongParent(Block block) {
+			return !nodes.containsKey(blockHash(block) );
+		}
+
+		private boolean tooOld(Block block) {
+			return wrongParent(block);
 		}
     	
     }
