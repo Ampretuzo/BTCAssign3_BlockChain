@@ -2,9 +2,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 // Block Chain should maintain only limited block nodes to satisfy the functions
 // You should not have all the blocks added to the block chain in memory 
@@ -71,9 +71,11 @@ public class BlockChain {
     	private class BlockAndPool {
     	    private final Block block;
     	    private final UTXOPool upSnapshot;
-    	    public BlockAndPool(Block block, UTXOPool txHandler) {
+    	    private final int height;
+    	    public BlockAndPool(Block block, UTXOPool upSnapshot, int height) {
+    	    	this.height = height;
     	    	this.block = block;
-    	    	this.upSnapshot = txHandler;
+    	    	this.upSnapshot = upSnapshot;
 			}
     	    public Block getBlock() {
 				return block;
@@ -81,6 +83,9 @@ public class BlockChain {
     	    public UTXOPool getUTXOPool() {
 				return upSnapshot;
 			}
+    	    public int getHeight() {
+    	    	return height;
+    	    }
 			@Override
     	    public boolean equals(Object o) {
     	    	if(o == null) return false;
@@ -159,6 +164,9 @@ public class BlockChain {
     		public ByteArrayWrapper getHash() {
     			return hash;
     		}
+    		public void setHash(ByteArrayWrapper hash) {
+    			this.hash = hash;
+    		}
     		/**
     		 * Overriding equals.
     		 * Heads are equal if hashes are equal.
@@ -191,8 +199,9 @@ public class BlockChain {
     		this.heads = new ArrayList<Head>();	// Is LinkedList better?
     		this.heads.add(new Head(1, genesisBlock.getHash(), timeStamp.getStamp() ) );
     		this.blocks = new HashMap<ByteArrayWrapper, BlockAndPool>();
-    		UTXOPool newUP = new UTXOPool();	// Genesis pool is empty
-    		BlockAndPool genesis = new BlockAndPool(genesisBlock, newUP );
+    		UTXOPool newUP = new UTXOPool();	// Genesis pool is *not* empty
+    		newUP.addUTXO(new UTXO(genesisBlock.getCoinbase().getHash(), 0), genesisBlock.getCoinbase().getOutput(0) );
+    		BlockAndPool genesis = new BlockAndPool(genesisBlock, newUP, 1);
     		this.blocks.put(new ByteArrayWrapper(genesisBlock.getHash()), genesis);
 		}
 
@@ -211,8 +220,86 @@ public class BlockChain {
 			BlockAndPool bp = maxHeight();
 			return bp.getUTXOPool();
 		}
-    	
-    	// TODO
+
+		/**
+		 * (i) passed block must not be too old
+		 * (ii) passed block must have valid tx set (This is actually 
+		 * already taken care of by BlockHandler, I won't check it twice).
+		 */
+		public boolean addBlockInTree(Block block) {
+			
+			// New genesis, not again..
+	    	if(block.getPrevBlockHash() == null) {
+	    		return false;
+	    	}
+	    	
+			/*
+			 *  Make sure tree contains a parent, which is necessary condition.
+			 *  This is also equivalent to checking height condition, because I'm removing
+			 *  old parents from tree on each addBlock. 
+			 */
+	    	ByteArrayWrapper prevHash = new ByteArrayWrapper(block.getPrevBlockHash() );
+			if(!blocks.keySet().contains(prevHash) ) return false;
+			int newHeight = blocks.get(prevHash).getHeight() + 1;
+			
+			/*
+			 *  Now make sure block is valid by looking at its transactions.
+			 */
+			TxHandler txHandler = new TxHandler(blocks.get(prevHash).getUTXOPool() );
+			List<Transaction> txs = block.getTransactions();
+			Transaction[] left = txs.toArray(new Transaction[txs.size() ] );
+			// If any transaction is missing, block is bad:
+			if(left.length != block.getTransactions().size() ) return false;
+			
+			// This will be used as a new utxo pool.
+			UTXOPool up = txHandler.getUTXOPool();
+			// Add coinbase to it:
+			Transaction coinbase = blocks.get(prevHash).getBlock().getCoinbase();
+			up.addUTXO(new UTXO(coinbase.getHash(), 0), coinbase.getOutput(0) );
+			// Put new block in map:
+			BlockAndPool bp = new BlockAndPool(block, up, newHeight);
+			blocks.put(new ByteArrayWrapper(block.getHash() ), bp);
+			
+			// Now take care of the heads.
+			/*
+			 * First, see if heads contained prevHash block.
+			 */
+			int headIdx = -1;
+			for(int i = 0; i < heads.size(); i++) {
+				if(heads.get(i).getHash().equals(prevHash) ) {
+					headIdx = i;
+					break;
+				}
+			}
+			/*
+			 * Do some changes to heads.
+			 */
+			ByteArrayWrapper hash = new ByteArrayWrapper(block.getHash() );
+			if(headIdx != -1) {	// Edit existing head.
+				heads.get(headIdx).setHash(hash);
+				heads.get(headIdx).incrementHeight();
+				heads.get(headIdx).setTimeStamp(timeStamp.getStamp() );
+			} else {	// Add new Head.
+				Head newHead = new Head(newHeight, block.getHash(), timeStamp.getStamp() );
+				heads.add(newHead);
+			}
+			
+			/*
+			 * We have to drop old blocks.
+			 */
+			List<ByteArrayWrapper> dropList = new LinkedList<ByteArrayWrapper>();
+			for(ByteArrayWrapper gash : blocks.keySet() ) {
+				// Age condition:
+				if(blocks.get(gash).getHeight() + 1 <= maxHeight().getHeight() - CUT_OFF_AGE) {
+					dropList.add(gash);
+				}
+			}
+			for(ByteArrayWrapper gash : dropList) {
+				blocks.remove(gash);
+			}
+			
+			return true;
+		}
     	
     }
 	
@@ -266,11 +353,31 @@ public class BlockChain {
      * @return true if block is successfully added
      */
     public boolean addBlock(Block block) {
-		return false;
-        // IMPLEMENT THIS
+    	
+    	// If tree is unable to accept that block, return no.
+    	if(!tree.addBlockInTree(block) ) return false;
+
+    	// If tree accepted it, we can remove block transactions from txPool.
+    	for(Transaction tx : block.getTransactions() ) {
+    		txPool.removeTransaction(tx.getHash() );
+    	}
+    	
+    	reorganizeOutstandingPool();
+    	
+		return true;
     }
 
-    /** Add a transaction to the transaction pool */
+    /*
+     * This method should update {@code txPool} if a new
+     * branch became taller.
+     * Some arguments might be added, this is just a stub. 
+     */
+    private void reorganizeOutstandingPool() {
+		// TODO Auto-generated method stub
+		
+	}
+
+	/** Add a transaction to the transaction pool */
     public void addTransaction(Transaction tx) {
         txPool.addTransaction(tx);	// I think it's that simple.
     }
