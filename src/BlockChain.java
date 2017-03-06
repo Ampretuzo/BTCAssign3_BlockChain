@@ -37,22 +37,21 @@ public class BlockChain {
 	 * The structure is directed acyclic graph (DAG).
 	 * Directed part in DAG is obvious.
 	 * The fact that it is acyclic follows from append-only character of blockchain.
-	 * But not only is it a DAG, it is a tree as well, which follows from the fact that blocks have only one parent.
+	 * But not only is it a DAG, it is a tree as well, which follows from the fact that 
+	 * blocks have only one parent.
 	 * 
 	 * To store that tree I'll use Git like mechanism (although Git is just a DAG).
 	 * We'll store references to leafs in a list {@code heads}.
 	 * Ideally, {@code heads} will contain only one reference, but there is a possibility
 	 * of several references being stored when there are forks in blockchain.
-	 * Head will contain hash and height of pointed block, as well as
-	 * TxHandler (from which, UTXOPool) for that fork.
-	 * Additionally, {@code Head} will contain integer that timestamps them, higher value
-	 * meaning head was updated more recently.
+	 * Head will contain hash, height and timestamp of pointed node.
 	 * 
 	 * Blocks will be stored in a map where keys are their hashes.
 	 * I'll keep blocks in memory only less than {@code CUT_OFF_AGE} deep from each head.
-	 * For convenience, blocks will be stored with corresponding TxHandlers so that
+	 * For convenience, blocks will be stored with corresponding UTXOPools so that
 	 * we don't have to manually construct UTXOPool each time new fork is made.
 	 *
+	 * ...
 	 */
     
     /**
@@ -121,14 +120,8 @@ public class BlockChain {
 			public void setTimeStamp(int timeStamp) {
 				this.timeStamp = timeStamp;
 			}
-    		public void incrementHeight() {
-    			height++;
-    		}
     		public void setHash(ByteArrayWrapper hash) {
     			this.hash = hash;
-    		}
-    		public void setHash(byte[] hash) {
-    			setHash(new ByteArrayWrapper(hash) );
     		}
     		/**
     		 * Heads are equal if hashes are equal.
@@ -430,7 +423,9 @@ public class BlockChain {
 		 * Is this even needed?
 		 * I just have to store txs, it is not my responsibility that they make
 		 * sense.
-		 * What if I just ditch all txs on fork change?
+		 * Even more, it is not possible to truly reset outstanding tx pool
+		 * in this setting, since two branches might not necessarily have a common
+		 * ancestor.
 		 */
 	}
 
