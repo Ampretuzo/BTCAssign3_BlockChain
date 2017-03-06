@@ -317,7 +317,7 @@ public class BlockChain {
 		}
 
 		private boolean isGenesis(Block block) {
-			return block.getHash() == null;
+			return block.getPrevBlockHash() == null;
 		}
 
 		private boolean notValid(Block block) {
@@ -341,7 +341,7 @@ public class BlockChain {
 		}
 
 		private boolean wrongParent(Block block) {
-			return !nodes.containsKey(blockHash(block) );
+			return !nodes.containsKey(new ByteArrayWrapper(block.getPrevBlockHash() ) );
 		}
 
 		private boolean tooOld(Block block) {
