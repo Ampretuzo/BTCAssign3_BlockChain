@@ -101,9 +101,12 @@ public class BlockChain {
     		 * Ctor keeps const-correctness for hash and up, so don't worry.
     		 */
     		public Head(int height, byte[] hash, int timeStamp) {
-    			this.height = height;
     			// copy is made inside {@code ByteArrayWrapper} ctor.
-    			this.hash = new ByteArrayWrapper(hash);
+    			this(height, new ByteArrayWrapper(hash), timeStamp);
+    		}
+    		public Head(int height, ByteArrayWrapper hash, int timeStamp) {
+    			this.height = height;
+    			this.hash = hash;
     			this.timeStamp = timeStamp;
     		}
     		public int getTimeStamp() {
@@ -154,6 +157,9 @@ public class BlockChain {
     			}
     			return o.getTimeStamp() - this.getTimeStamp();
     		}
+			public void setHeight(int height) {
+				this.height = height;				
+			}
     	}
     	/**
     	 * Ctor
@@ -212,7 +218,6 @@ public class BlockChain {
 			/*
 			 * Checks come first:
 			 */
-			
 			if(isGenesis(block) ) return false;
 			
 			if(tooOld(block) ) return false;
@@ -221,7 +226,94 @@ public class BlockChain {
 			
 			if(notValid(block) ) return false;
 			
-			return false;
+			/*
+			 * If we arrived this far, we can start
+			 * applying some changes to structures.
+			 */
+			NodeData newNode = createNewNode(block);
+			nodes.put(blockHash(block), newNode);
+			
+			updateHeads(blockHash(block) );
+			
+			reduceNodes();
+			
+			reduceHeads();	// Not necessary
+			
+			return true;
+		}
+
+		private void reduceHeads() {
+			// TODO Auto-generated method stub
+			
+		}
+
+		/*
+		 * Remove old nodes.
+		 * Note that this is not optimisation, but necessary for
+		 * the program to function as described.
+		 */
+		private void reduceNodes() {
+			List<ByteArrayWrapper> dropList = new LinkedList<ByteArrayWrapper> ();
+			for(ByteArrayWrapper hash : nodes.keySet() ) {
+				if(nodeTooOld(hash) )
+					dropList.add(hash);
+			}
+			for(ByteArrayWrapper hash : dropList ) {
+				nodes.remove(hash);
+			}
+		}
+
+		private boolean nodeTooOld(ByteArrayWrapper hash) {
+			int height = nodes.get(hash).getHeight();
+			int maxHeight = maxHeight().getHeight();
+			return !(height + 1 > (maxHeight - CUT_OFF_AGE));
+		}
+
+		private void updateHeads(ByteArrayWrapper hash) {
+			ByteArrayWrapper prevHash = new ByteArrayWrapper(
+					nodes.get(hash).getBlock().getPrevBlockHash() 
+					);
+			int headIdx = indexInHeads(prevHash);
+			if(headIdx == -1) {	// Add
+				Head head = new Head(
+						nodes.get(hash).getHeight(), 
+						hash, 
+						timeStamp.getStamp() 
+						);
+				heads.add(head);
+			} else {	// Update
+				heads.get(headIdx).setHash(hash);
+				heads.get(headIdx).setTimeStamp(timeStamp.getStamp() );
+				heads.get(headIdx).setHeight(nodes.get(hash).getHeight() );
+			}
+			
+		}
+
+		private int indexInHeads(ByteArrayWrapper hash) {
+			for(int idx = 0; idx < heads.size(); idx++) {
+				Head temp = new Head(11, hash, 111);
+				if(temp.equals(heads.get(idx) ) )	// heads.get(idx).getHash().equals(hash) might have been better..
+					return idx;
+			}
+			return -1;
+		}
+
+		private NodeData createNewNode(Block block) {
+			UTXOPool newUp = reducedUtxo(block);
+			ByteArrayWrapper parentHash = new ByteArrayWrapper(block.getPrevBlockHash() );
+			int height = nodes.get(parentHash).getHeight() + 1;
+			NodeData newNode = new NodeData(block, newUp, height);
+			return newNode;
+		}
+
+		private UTXOPool reducedUtxo(Block block) {
+			ByteArrayWrapper parentHash = new ByteArrayWrapper(block.getPrevBlockHash() );
+			NodeData parentData = nodes.get(parentHash);
+			TxHandler txHandler = new TxHandler(parentData.getUTXOPool() );
+			List<Transaction> txList = block.getTransactions();
+			Transaction[] txs = txList.toArray(new Transaction[txList.size() ] );
+			txHandler.handleTxs(txs);
+			return txHandler.getUTXOPool();	// Return updated utxoPool
 		}
 
 		private boolean isGenesis(Block block) {
