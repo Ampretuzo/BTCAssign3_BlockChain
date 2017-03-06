@@ -300,10 +300,15 @@ public class BlockChain {
 
 		private NodeData createNewNode(Block block) {
 			UTXOPool newUp = reducedUtxo(block);
+			addCoinbase(newUp, block);
 			ByteArrayWrapper parentHash = new ByteArrayWrapper(block.getPrevBlockHash() );
 			int height = nodes.get(parentHash).getHeight() + 1;
 			NodeData newNode = new NodeData(block, newUp, height);
 			return newNode;
+		}
+
+		private void addCoinbase(UTXOPool newUp, Block block) {
+			newUp.addUTXO(coinbaseUTXO(block), coinbaseOutput(block) );
 		}
 
 		private UTXOPool reducedUtxo(Block block) {
